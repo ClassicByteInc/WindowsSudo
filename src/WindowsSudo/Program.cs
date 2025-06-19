@@ -177,10 +177,10 @@ public class Program
 		{
 			return File.ReadAllText(configFile, System.Text.Encoding.UTF8);
 		}
-		else if (GetCurrentShell() != "")
-		{
-			return GetCurrentShell();
-		}
+		//else if (GetCurrentShell() != "")
+		//{
+		//	return GetCurrentShell();
+		//}
 		else
 		{
 			string? shell;
@@ -199,37 +199,40 @@ public class Program
 		}
 	}
 
-	public static string GetCurrentShell()
-	{
-		// 优先从环境变量获取父进程 shell
-		try
-		{
-			using var process = Process.GetCurrentProcess();
-			var parentId = 0;
-			using (var searcher = new System.Management.ManagementObjectSearcher(
-				"SELECT ParentProcessId FROM Win32_Process WHERE ProcessId = " + process.Id))
-			{
-				foreach (var obj in searcher.Get())
-				{
-					parentId = Convert.ToInt32(obj["ParentProcessId"]);
-					break;
-				}
-			}
-			if (parentId > 0)
-			{
-				using var parentProc = Process.GetProcessById(parentId);
-				var parentExe = parentProc.MainModule?.FileName;
-				if (!string.IsNullOrEmpty(parentExe))
-					return parentExe;
-			}
-		}
-		catch
-		{
-			// 忽略异常，回退到默认 shell
-		}
-		// 回退到用户默认 shell
-		return "";
-	}
+	/**
+		由于NativeAOT不让用WMI遂把这个砍了
+	 */
+	//public static string GetCurrentShell()
+	//{
+	//	// 优先从环境变量获取父进程 shell
+	//	try
+	//	{
+	//		using var process = Process.GetCurrentProcess();
+	//		var parentId = 0;
+	//		using (var searcher = new System.Management.ManagementObjectSearcher(
+	//			"SELECT ParentProcessId FROM Win32_Process WHERE ProcessId = " + process.Id))
+	//		{
+	//			foreach (var obj in searcher.Get())
+	//			{
+	//				parentId = Convert.ToInt32(obj["ParentProcessId"]);
+	//				break;
+	//			}
+	//		}
+	//		if (parentId > 0)
+	//		{
+	//			using var parentProc = Process.GetProcessById(parentId);
+	//			var parentExe = parentProc.MainModule?.FileName;
+	//			if (!string.IsNullOrEmpty(parentExe))
+	//				return parentExe;
+	//		}
+	//	}
+	//	catch
+	//	{
+	//		// 忽略异常，回退到默认 shell
+	//	}
+	//	// 回退到用户默认 shell
+	//	return "";
+	//}
 
 	public static void SetUserDefaultShell(string shellName)
 	{

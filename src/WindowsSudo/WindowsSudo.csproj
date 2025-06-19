@@ -7,13 +7,25 @@
     <Nullable>enable</Nullable>
     <AssemblyName>sudo</AssemblyName>
     <PublishAot>true</PublishAot>
-    <InvariantGlobalization>true</InvariantGlobalization>
-    <StripSymbols>true</StripSymbols>
-    <IlcGenerateCompleteTypeMetadata>true</IlcGenerateCompleteTypeMetadata>
+    <SignAssembly>False</SignAssembly>
+    <PackageId>ClassicByte.WindowsSudo</PackageId>
+    <Title>Sudo in Windows</Title>
+    <Authors>Higashitani Yume</Authors>
+    <Company>ClassicByte</Company>
+    <Product>WindowsSudo</Product>
+    <Copyright>Copyright (C) 2025 ClassicByte</Copyright>
+    <PackageProjectUrl>github.com/ClassicByteInc/WindowsSudo</PackageProjectUrl>
+    <PackageReadmeFile>Readme.md</PackageReadmeFile>
+    <RepositoryUrl>github.com/ClassicByteInc/WindowsSudo</RepositoryUrl>
+    <PackageTags>windows;sudo</PackageTags>
+    <PackAsTool>True</PackAsTool>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="System.Management" Version="9.0.6" />
+    <None Include="..\..\Readme.md">
+      <Pack>True</Pack>
+      <PackagePath>\</PackagePath>
+    </None>
   </ItemGroup>
 
 </Project>
