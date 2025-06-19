@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "WindowsSudo": {
+      "commandName": "Project",
+      "commandLineArgs": "cmd.exe"
+    }
+  }
+}

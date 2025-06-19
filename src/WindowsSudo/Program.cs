@@ -1,155 +1,295 @@
-﻿using System.Diagnostics;
-using Microsoft.Win32;
+﻿using System.ComponentModel;
+using System.Diagnostics;
 
-namespace WindowsSudo
+namespace WindowsSudo;
+
+public class Program
 {
-	class Program
+	public static string[] Comlets { get; set; } = [];
+	private static readonly string[] cmdComlets = new[]
+			{
+	"assoc", "break", "call", "cd", "chdir", "cls", "color", "copy", "date", "del", "dir",
+	"echo", "endlocal", "erase", "exit", "for", "ftype", "goto", "if", "md", "mkdir", "move",
+	"path", "pause", "popd", "prompt", "pushd", "rd", "rem", "ren", "rename", "rmdir", "set",
+	"setlocal", "shift", "start", "time", "title", "type", "ver", "verify", "vol"
+	};
+
+	public static int Main(string[] args)
 	{
-		static void Main(string[] args)
+		if (args.Length == 0)
 		{
-			if (args.Length == 0)
-			{
-				Console.WriteLine("错误: 请提供要执行的命令。");
-				Console.WriteLine("用法: sudo [命令] [参数...]");
-				Environment.Exit(1);
-			}
+			DisplayHelp();
+			return 1;
+		}
+		var command = args[0];
+		// 新增方法：在PATH环境变量中查找可执行文件
+		var exePath = FindExeInPath(command);
+		// 如果在Path中找到
+		if (exePath != null)
+		{
+			RunAsExeFile(exePath, [.. args.Skip(1)]);
+			return 0;
+		}
+		// 否则在当前目录查找
+		if (File.Exists(command))
+		{
+			RunAsExeFile(command, [.. args.Skip(1)]);
+			return 0;
+		}
+		else
+		{
+			RunAsComlet(command, args.Skip(1).ToArray());
+			return 0;
+		}
+	}
 
-			try
-			{
-				bool isUacEnabled = IsUacEnabled();
-				string fullCommandLine = string.Join(" ", args);
+	public static string? FindExeInPath(string command)
+	{
+		var pathEnv = Environment.GetEnvironmentVariable("PATH");
+		if (string.IsNullOrEmpty(pathEnv))
+			return null;
 
-				ExecuteWithAdminPrivileges(args[0], fullCommandLine);
-			}
-			catch (Exception ex)
+		var paths = pathEnv.Split(Path.PathSeparator);
+		foreach (var path in paths)
+		{
+			var candidate = Path.Combine(path, command);
+			if (File.Exists(candidate))
 			{
-				Console.WriteLine($"执行过程中发生错误: {ex.Message}");
-				Environment.Exit(1);
+				return candidate;
+			}
+			// 补全.exe后缀
+			if (!command.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+			{
+				var candidateExe = Path.Combine(path, command + ".exe");
+				if (File.Exists(candidateExe))
+				{
+					return candidateExe;
+				}
 			}
 		}
+		return null;
+	}
 
-		static bool IsUacEnabled()
+	public static void DisplayHelp()
+	{
+		Console.WriteLine("WindowsSudo - Windows 下的 sudo 工具");
+		Console.WriteLine();
+		Console.WriteLine("用法:");
+		Console.WriteLine("  sudo <可执行文件> [参数 ...]");
+		Console.WriteLine("    以管理员权限运行指定的可执行文件，并传递参数。");
+		Console.WriteLine();
+		Console.WriteLine("  sudo <命令> [参数 ...]");
+		Console.WriteLine("    以管理员权限在当前 shell 执行内置命令或脚本。");
+		Console.WriteLine();
+		Console.WriteLine("示例:");
+		Console.WriteLine("  sudo notepad.exe C:\\Windows\\System32\\drivers\\etc\\hosts");
+		Console.WriteLine("  sudo copy \"C:\\file.txt\" \"D:\\file.txt\"");
+		Console.WriteLine("  sudo Copy-Item \"C:\\a.txt\" \"D:\\a.txt\"");
+		Console.WriteLine();
+		Console.WriteLine("支持的 shell 命令会根据当前 shell 类型自动适配（cmd/powershell）。");
+		Console.WriteLine("如需更改默认 shell，可使用 SetUserDefaultShell 方法。");
+		Console.WriteLine();
+		Console.WriteLine("项目地址: https://github.com/ClassicByteInc/WindowsSudo");
+	}
+
+	public static void RunAsExeFile(string fileName, string[]? args = null)
+	{
+		var psi = new ProcessStartInfo
 		{
+			FileName = fileName,
+			UseShellExecute = true,
+			WorkingDirectory = Directory.GetCurrentDirectory(),
+			Verb = "runas" // 触发UAC提权
+		};
+
+		// 拼接剩余参数
+		if (args != null && args.Length > 0)
+		{
+			psi.Arguments = string.Join(" ", args.Select(a => $"\"{a}\""));
+		}
+
+		try
+		{
+			Process.Start(psi);
+		}
+		catch (Win32Exception ex)
+		{
+			Console.ForegroundColor = ConsoleColor.Red;
+			// 用户取消UAC或其他错误
+			Console.Error.WriteLine($"启动失败: {ex.Message}");
+			Console.ResetColor();
+		}
+	}
+
+	public static void ReadComlets()
+	{
+		string shellPath = GetUserDefaultShell().Trim();
+		List<string> comlets = [];
+
+		if (shellPath.EndsWith("pwsh.exe", StringComparison.OrdinalIgnoreCase) ||
+		shellPath.EndsWith("powershell.exe", StringComparison.OrdinalIgnoreCase))
+		{
+			// 获取 PowerShell 支持的所有命令
+			var psi = new ProcessStartInfo
+			{
+				FileName = shellPath,
+				Arguments = "-NoProfile -Command \"Get-Command | Select-Object -ExpandProperty Name\"",
+				RedirectStandardOutput = true,
+				UseShellExecute = false,
+				CreateNoWindow = true
+			};
 			try
 			{
-				using RegistryKey? key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System");
-				if (key == null)
-					return false;
-
-				var value = key.GetValue("EnableLUA");
-				return value != null && (int)value == 1;
+				using var proc = Process.Start(psi);
+				if (proc != null)
+				{
+					while (!proc.StandardOutput.EndOfStream)
+					{
+						var line = proc.StandardOutput.ReadLine();
+						if (!string.IsNullOrWhiteSpace(line))
+							comlets.Add(line.Trim());
+					}
+					proc.WaitForExit();
+				}
 			}
 			catch
 			{
-				return true;
+				// 忽略异常
 			}
 		}
-
-		static void ExecuteWithAdminPrivileges(string command, string fullCommandLine)
+		else if (shellPath.EndsWith("cmd.exe", StringComparison.OrdinalIgnoreCase))
 		{
-			bool isPowerShellCommand = IsPowerShellCommand(command) || IsPowerShellVerbNounCommand(command);
-			bool isCmdInternalCommand = IsCmdInternalCommand(command);
+			// cmd 支持的内置命令（部分常用）
+			comlets.AddRange(cmdComlets);
+		}
 
-			ProcessStartInfo startInfo = new()
-			{
-				UseShellExecute = true,
-				Verb = "runas"
-			};
+		Comlets = [.. comlets];
+	}
 
-			if (isPowerShellCommand)
+	public static string GetUserDefaultShell()
+	{
+		var configFile = Path.Combine(
+			Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+			".sudo",
+			"DefaultShell.cfg"
+			);
+		if (File.Exists(configFile))
+		{
+			return File.ReadAllText(configFile, System.Text.Encoding.UTF8);
+		}
+		else if (GetCurrentShell() != "")
+		{
+			return GetCurrentShell();
+		}
+		else
+		{
+			string? shell;
+			if ((shell = FindExeInPath("pwsh.exe")) is not null)
 			{
-				startInfo.FileName = "powershell.exe";
-				startInfo.Arguments = $"-NoProfile -Command \"{fullCommandLine}\"";
+				return shell;
 			}
-			else if (isCmdInternalCommand)
+			else if ((shell = FindExeInPath("powershell.exe")) is not null)
 			{
-				startInfo.FileName = "cmd.exe";
-				startInfo.Arguments = $"/c {fullCommandLine}";
+				return shell;
 			}
 			else
 			{
-				startInfo.FileName = command;
-				if (fullCommandLine.Length > command.Length)
+				return "cmd.exe";
+			}
+		}
+	}
+
+	public static string GetCurrentShell()
+	{
+		// 优先从环境变量获取父进程 shell
+		try
+		{
+			using var process = Process.GetCurrentProcess();
+			var parentId = 0;
+			using (var searcher = new System.Management.ManagementObjectSearcher(
+				"SELECT ParentProcessId FROM Win32_Process WHERE ProcessId = " + process.Id))
+			{
+				foreach (var obj in searcher.Get())
 				{
-					startInfo.Arguments = fullCommandLine[command.Length..].TrimStart();
+					parentId = Convert.ToInt32(obj["ParentProcessId"]);
+					break;
 				}
 			}
-
-			try
+			if (parentId > 0)
 			{
-				Process.Start(startInfo);
-			}
-			catch (System.ComponentModel.Win32Exception ex)
-			{
-				if (ex.NativeErrorCode == 1223)
-				{
-					Console.WriteLine("操作已被用户取消。");
-					Environment.Exit(1);
-				}
-				throw;
+				using var parentProc = Process.GetProcessById(parentId);
+				var parentExe = parentProc.MainModule?.FileName;
+				if (!string.IsNullOrEmpty(parentExe))
+					return parentExe;
 			}
 		}
-
-		static bool IsPowerShellCommand(string command)
+		catch
 		{
-			return command.Equals("powershell", StringComparison.OrdinalIgnoreCase) ||
-				   command.Equals("pwsh", StringComparison.OrdinalIgnoreCase);
+			// 忽略异常，回退到默认 shell
+		}
+		// 回退到用户默认 shell
+		return "";
+	}
+
+	public static void SetUserDefaultShell(string shellName)
+	{
+		var configFile = Path.Combine(
+			Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+			".sudo",
+			"DefaultShell.cfg"
+			);
+		Directory.CreateDirectory(Path.Combine(
+			Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+			".sudo"));
+		File.WriteAllText(configFile, shellName);
+	}
+
+	public static void RunAsComlet(string comlet, string[]? args = null)
+	{
+		// 读取当前 shell 路径
+		string shellPath = GetUserDefaultShell().Trim();
+		string arguments = "";
+
+		// 拼接剩余参数
+		string argString = args != null && args.Length > 0
+			? string.Join(" ", args.Select(a => $"\"{a}\""))
+			: "";
+
+		if (shellPath.EndsWith("pwsh.exe", StringComparison.OrdinalIgnoreCase) ||
+			shellPath.EndsWith("powershell.exe", StringComparison.OrdinalIgnoreCase))
+		{
+			// PowerShell: -NoProfile -Command "<comlet> <args>"
+			arguments = $"-NoProfile -Command \"{comlet} {argString}\"";
+		}
+		else if (shellPath.EndsWith("cmd.exe", StringComparison.OrdinalIgnoreCase))
+		{
+			// cmd: /c <comlet> <args>
+			arguments = $"/c {comlet} {argString}";
+		}
+		else
+		{
+			// 其他 shell，直接传递命令和参数
+			arguments = $"{comlet} {argString}".Trim();
 		}
 
-		static bool IsPowerShellVerbNounCommand(string command)
+		var psi = new ProcessStartInfo
 		{
+			FileName = shellPath,
 
+			UseShellExecute = false,
+			WorkingDirectory = Directory.GetCurrentDirectory(),
+			Verb = "runas" // UAC 提权
+		};
 
-			if (!command.Contains('-'))
-				return false;
-
-			string[] parts = command.Split('-', 2);
-			if (parts.Length != 2)
-				return false;
-			return Array.Exists(GetPowerShellApprovedVerbs(), v => v.Equals(parts[0], StringComparison.OrdinalIgnoreCase)) &&
-				   !string.IsNullOrEmpty(parts[1]);
+		try
+		{
+			Process.Start(psi);
 		}
-		static string[] GetPowerShellApprovedVerbs()
+		catch (Win32Exception ex)
 		{
-			try
-			{
-				// 使用 PowerShell 获取所有可用的命令的动词部分
-				var psi = new ProcessStartInfo
-				{
-					FileName = "powershell.exe",
-					Arguments = "-NoProfile -Command \"Get-Command -CommandType Cmdlet,Function | Select-Object -ExpandProperty Verb | Sort-Object -Unique\"",
-					RedirectStandardOutput = true,
-					UseShellExecute = false,
-					CreateNoWindow = true
-				};
-
-				using var process = Process.Start(psi);
-				var output = process?.StandardOutput.ReadToEnd();
-				process?.WaitForExit();
-				var verbs = output?.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries);
-				return verbs ?? [];
-				;
-			}
-			catch
-			{
-				// 失败时回退到常用动词
-				return [
-						"Add", "Clear", "Close", "Copy", "Enter", "Exit", "Find", "Format", "Get",
-						"Hide", "Join", "Lock", "Move", "New", "Open", "Optimize", "Pop", "Push",
-						"Remove", "Rename", "Reset", "Search", "Select", "Set", "Show", "Skip",
-						"Split", "Stop", "Submit", "Suspend", "Switch", "Test", "Trace", "Unlock", "Watch"
-					];
-			}
-		}
-		static bool IsCmdInternalCommand(string command)
-		{
-			string[] internalCommands = [
-				"cd", "dir", "type", "echo", "mkdir", "rmdir", "md", "rd",
-				"copy", "move", "del", "erase", "ren", "cls", "ver", "help", "exit"
-			];
-
-			return Array.Exists(internalCommands,
-				cmd => cmd.Equals(command, StringComparison.OrdinalIgnoreCase));
+			Console.ForegroundColor = ConsoleColor.Red;	
+			Console.Error.WriteLine($"启动失败: {ex.Message}");
+			Console.ResetColor();
 		}
 	}
 }
